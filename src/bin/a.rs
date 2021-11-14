@@ -3,7 +3,7 @@ use proconio::input;
 use rand::prelude::*;
 use std::collections::BTreeMap;
 
-const TIMELIMIT: f64 = 1.65;
+const TIMELIMIT: f64 = 0.9;
 const N: usize = 1000;
 const M: usize = 50;
 
@@ -28,11 +28,34 @@ fn main() {
     let input = Input { from, to };
     let mut s = (1..=M).collect::<Vec<usize>>();
     let mut output = greedy(&input, s.clone());
-    order_climbing(&input, &mut s, &mut output, &mut timer);
+    // for _ in 0..10 {
+    order_climbing(&input, &mut output, &mut timer, &mut s);
+    // climbing_2_opt(&input, &mut output, &mut timer, &mut s);
+    // timer.reset();
+    // }
     parse_output(&output);
 }
 
-fn order_climbing(input: &Input, s: &mut Vec<usize>, output: &mut Output, timer: &mut Timer) {
+fn climbing_2_opt(input: &Input, output: &mut Output, _timer: &mut Timer, s: &mut Vec<usize>) {
+    let mut best_score = compute_score(input, output).0;
+
+    for i in 1..M - 1 {
+        for j in i + 1..M {
+            let mut new_s = s.clone();
+            new_s[i..=j].reverse();
+            let new_output = greedy(input, new_s.clone());
+            let new_score = compute_score(input, &new_output).0;
+            if best_score < new_score {
+                best_score = new_score;
+                *output = new_output;
+                *s = new_s;
+            }
+        }
+    }
+    eprintln!("{}", best_score);
+}
+
+fn order_climbing(input: &Input, output: &mut Output, timer: &mut Timer, s: &mut Vec<usize>) {
     let mut rng = rand_chacha::ChaCha20Rng::seed_from_u64(0);
     let mut count = 0;
 
@@ -194,5 +217,9 @@ impl Timer {
 
     fn get_time(&self) -> f64 {
         get_time() - self.start_time
+    }
+
+    fn reset(&mut self) {
+        self.start_time = 0.0;
     }
 }
