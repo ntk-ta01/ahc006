@@ -1,6 +1,7 @@
 #![allow(non_snake_case, unused_imports, unused_macros)]
 use proconio::input;
 use rand::prelude::*;
+use rand_chacha::ChaCha12Rng;
 use std::collections::BTreeMap;
 
 const TIMELIMIT: f64 = 1.8;
@@ -29,52 +30,49 @@ fn main() {
     let input = Input { from, to };
     let mut s = (1..=M).collect::<Vec<usize>>();
     let mut output = greedy(&input, s.clone());
-    // for _ in 0..10 {
-    order_annealing(&input, &mut output, &mut timer, &mut s, &mut rng);
-    // climbing_2_opt(&input, &mut output, &mut timer, &mut s);
-    // timer.reset();
-    // }
+    order_climbing(&input, &mut output, &mut timer, &mut s, &mut rng);
+    search_nearestneightborhood(&input, &mut output, &mut s);
+    // eprintln!("{}", compute_score(&input, &output).0);
     parse_output(&output);
 }
 
-#[allow(dead_code)]
-fn climbing_2_opt(input: &Input, output: &mut Output, _timer: &mut Timer, s: &mut Vec<usize>) {
-    let mut best_score = compute_score(input, output).0;
-
-    for i in 1..M - 1 {
-        for j in i + 1..M {
-            let mut new_s = s.clone();
-            new_s[i..=j].reverse();
-            let new_output = greedy(input, new_s.clone());
-            let new_score = compute_score(input, &new_output).0;
-            if best_score < new_score {
-                best_score = new_score;
-                *output = new_output;
-                *s = new_s;
+fn search_nearestneightborhood(input: &Input, output: &mut Output, s: &mut Vec<usize>) {
+    let mut new_s = vec![];
+    let mut visited = vec![false; N];
+    let mut pos = (400, 400);
+    while new_s.len() < M {
+        let mut min_dist = 100_000;
+        let mut next_pos = (1000, 1000);
+        let mut next_order_i = 0;
+        for order_i in s.iter() {
+            if visited[*order_i - 1] {
+                continue;
+            }
+            let now_dist = dist(pos, input.from[*order_i - 1]);
+            if min_dist > now_dist {
+                min_dist = now_dist;
+                next_pos = input.to[*order_i - 1];
+                next_order_i = *order_i;
             }
         }
+        visited[next_order_i - 1] = true;
+        pos = next_pos;
+        new_s.push(next_order_i);
     }
-    // eprintln!("{}", best_score);
+    *s = new_s;
+    *output = greedy(input, s.clone());
 }
 
-fn order_annealing(
+fn order_climbing(
     input: &Input,
     output: &mut Output,
     timer: &mut Timer,
     s: &mut Vec<usize>,
     rng: &mut rand_chacha::ChaCha20Rng,
 ) {
-    const STARTTEMP: f64 = 0.01;
-    const ENDTEMP: f64 = 1e3;
-    let mut temp = STARTTEMP;
-    let mut prob;
-
     let mut count = 0;
-    let mut best_score = compute_score(input, output).0;
-    let mut best_output = output.clone();
-    let mut best_s = s.clone();
 
-    let mut now_score = best_score;
+    let mut best_score = compute_score(input, output).0;
 
     loop {
         if count >= 100 {
@@ -82,7 +80,6 @@ fn order_annealing(
             if passed >= 1.0 {
                 break;
             }
-            temp = STARTTEMP.powf(1.0 - passed) * ENDTEMP.powf(passed);
             count = 0;
         }
         count += 1;
@@ -108,21 +105,13 @@ fn order_annealing(
         }
         let new_output = greedy(input, new_s.clone());
         let new_score = compute_score(input, &new_output).0;
-        prob = f64::exp((new_score - now_score) as f64 / temp);
-        if now_score < new_score || rng.gen_bool(prob) {
-            now_score = new_score;
+        if best_score < new_score {
+            best_score = new_score;
             *output = new_output;
             *s = new_s;
         }
-        if best_score < now_score {
-            best_score = now_score;
-            best_output = output.clone();
-            best_s = s.clone();
-        }
     }
-    *output = best_output;
-    *s = best_s;
-    eprintln!("{}", best_score);
+    // eprintln!("{}", best_score);
 }
 
 fn greedy(input: &Input, r: Vec<usize>) -> Output {
