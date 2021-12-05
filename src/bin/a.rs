@@ -1,10 +1,9 @@
-#![allow(non_snake_case, unused_imports, unused_macros)]
+#![allow(non_snake_case, unused_imports, unused_macros, dead_code)]
 use proconio::input;
 use rand::prelude::*;
 use rand_chacha::ChaCha12Rng;
 use std::collections::BTreeMap;
 
-const TIMELIMIT: f64 = 1.8;
 const N: usize = 1000;
 const M: usize = 50;
 
@@ -20,109 +19,61 @@ struct Output {
 }
 
 fn main() {
-    let mut timer = Timer::new();
-    let mut rng = rand_chacha::ChaCha20Rng::seed_from_u64(0);
     input! {
         a: [(i32, i32, i32, i32); N]
     }
     let from = a.iter().map(|&(x, y, _, _)| (x, y)).collect();
     let to = a.iter().map(|&(_, _, x, y)| (x, y)).collect();
     let input = Input { from, to };
-    let mut s = (1..=M).collect::<Vec<usize>>();
-    let mut output = greedy(&input, s.clone());
-    order_climbing(&input, &mut output, &mut timer, &mut s, &mut rng);
-    search_nearestneightborhood(&input, &mut output, &mut s);
-    // eprintln!("{}", compute_score(&input, &output).0);
+    let s = (1..=M).collect::<Vec<usize>>();
+    let output = greedy(&input, s);
+    // eprintln!("{:?}", compute_score(&input, &output).0);
     parse_output(&output);
-}
-
-fn search_nearestneightborhood(input: &Input, output: &mut Output, s: &mut Vec<usize>) {
-    let mut new_s = vec![];
-    let mut visited = vec![false; N];
-    let mut pos = (400, 400);
-    while new_s.len() < M {
-        let mut min_dist = 100_000;
-        let mut next_pos = (1000, 1000);
-        let mut next_order_i = 0;
-        for order_i in s.iter() {
-            if visited[*order_i - 1] {
-                continue;
-            }
-            let now_dist = dist(pos, input.from[*order_i - 1]);
-            if min_dist > now_dist {
-                min_dist = now_dist;
-                next_pos = input.to[*order_i - 1];
-                next_order_i = *order_i;
-            }
-        }
-        visited[next_order_i - 1] = true;
-        pos = next_pos;
-        new_s.push(next_order_i);
-    }
-    *s = new_s;
-    *output = greedy(input, s.clone());
-}
-
-fn order_climbing(
-    input: &Input,
-    output: &mut Output,
-    timer: &mut Timer,
-    s: &mut Vec<usize>,
-    rng: &mut rand_chacha::ChaCha20Rng,
-) {
-    let mut count = 0;
-
-    let mut best_score = compute_score(input, output).0;
-
-    loop {
-        if count >= 100 {
-            let passed = timer.get_time() / TIMELIMIT;
-            if passed >= 1.0 {
-                break;
-            }
-            count = 0;
-        }
-        count += 1;
-
-        let mut new_s = s.clone();
-        // 2点swap と 1点変更 をやる
-        if rng.gen_bool(0.5) {
-            // update近傍
-            let mut new_type = rng.gen_range(0, N) + 1;
-            while s.iter().any(|e| *e == new_type) {
-                new_type = rng.gen_range(0, N) + 1;
-            }
-            let update_index = rng.gen_range(0, M);
-            new_s[update_index] = new_type;
-        } else {
-            // swap近傍
-            let swap_index1 = rng.gen_range(0, M);
-            let swap_index2 = rng.gen_range(0, M);
-            let out1 = new_s[swap_index1];
-            let out2 = new_s[swap_index2];
-            new_s[swap_index2] = out2;
-            new_s[swap_index2] = out1;
-        }
-        let new_output = greedy(input, new_s.clone());
-        let new_score = compute_score(input, &new_output).0;
-        if best_score < new_score {
-            best_score = new_score;
-            *output = new_output;
-            *s = new_s;
-        }
-    }
-    // eprintln!("{}", best_score);
 }
 
 fn greedy(input: &Input, r: Vec<usize>) -> Output {
     let mut path = vec![];
     path.push((400, 400));
-    for i in r.iter() {
-        let (x, y) = input.from[*i - 1];
-        path.push((x, y));
-        let (x, y) = input.to[*i - 1];
-        path.push((x, y));
+
+    // nearest neighborhood法をする
+    // 注文を受けるレストランがpick up済みであるかの情報を持つvec
+    let mut is_picked = vec![false; r.len()];
+    // path[-1]に一番近いレストランをpathに追加していく
+    while is_picked.iter().any(|b| !(*b)) {
+        let mut rest_i = r.len();
+        let mut min_dist = i32::max_value();
+        for (i, rest) in r.iter().enumerate() {
+            if is_picked[i] {
+                continue;
+            }
+            let now_dist = dist(path[path.len() - 1], input.from[*rest - 1]);
+            if min_dist > now_dist {
+                min_dist = now_dist;
+                rest_i = i;
+            }
+        }
+        is_picked[rest_i] = true;
+        path.push(input.from[r[rest_i] - 1]);
     }
+
+    let mut is_delivered = vec![false; r.len()];
+    while is_delivered.iter().any(|b| !(*b)) {
+        let mut rest_i = r.len();
+        let mut min_dist = i32::max_value();
+        for (i, rest) in r.iter().enumerate() {
+            if is_delivered[i] {
+                continue;
+            }
+            let now_dist = dist(path[path.len() - 1], input.to[*rest - 1]);
+            if min_dist > now_dist {
+                min_dist = now_dist;
+                rest_i = i;
+            }
+        }
+        is_delivered[rest_i] = true;
+        path.push(input.to[r[rest_i] - 1]);
+    }
+
     path.push((400, 400));
     Output { r, path }
 }
@@ -232,7 +183,6 @@ impl Timer {
         get_time() - self.start_time
     }
 
-    #[allow(dead_code)]
     fn reset(&mut self) {
         self.start_time = 0.0;
     }
