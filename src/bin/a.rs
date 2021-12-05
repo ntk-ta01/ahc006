@@ -25,37 +25,39 @@ fn main() {
     let from = a.iter().map(|&(x, y, _, _)| (x, y)).collect();
     let to = a.iter().map(|&(_, _, x, y)| (x, y)).collect();
     let input = Input { from, to };
-    let s = (1..=M).collect::<Vec<usize>>();
-    let output = greedy(&input, s);
+    let output = greedy(&input);
     // eprintln!("{:?}", compute_score(&input, &output).0);
     parse_output(&output);
 }
 
-fn greedy(input: &Input, r: Vec<usize>) -> Output {
+fn greedy(input: &Input) -> Output {
+    let mut r = vec![];
     let mut path = vec![];
     path.push((400, 400));
 
-    // nearest neighborhood法をする
-    // 注文を受けるレストランがpick up済みであるかの情報を持つvec
-    let mut is_picked = vec![false; r.len()];
+    // 全レストランでnearest neighborhood法をする
+    // レストランがpick up済みであるかの情報を持つvec
+    let mut is_picked = vec![false; N];
     // path[-1]に一番近いレストランをpathに追加していく
-    while is_picked.iter().any(|b| !(*b)) {
-        let mut rest_i = r.len();
+    while r.len() < M {
+        let mut rest_i = N;
         let mut min_dist = i32::max_value();
-        for (i, rest) in r.iter().enumerate() {
-            if is_picked[i] {
+        for (i, p) in is_picked.iter().enumerate() {
+            if *p {
                 continue;
             }
-            let now_dist = dist(path[path.len() - 1], input.from[*rest - 1]);
+            let now_dist = dist(path[path.len() - 1], input.from[i]);
             if min_dist > now_dist {
                 min_dist = now_dist;
                 rest_i = i;
             }
         }
+        r.push(rest_i + 1);
         is_picked[rest_i] = true;
-        path.push(input.from[r[rest_i] - 1]);
+        path.push(input.from[rest_i]);
     }
 
+    // deliveryはpickすることにしたレストランの中で、path[-1]に近いレストランから配達していく
     let mut is_delivered = vec![false; r.len()];
     while is_delivered.iter().any(|b| !(*b)) {
         let mut rest_i = r.len();
