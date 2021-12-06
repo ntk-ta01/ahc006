@@ -26,88 +26,67 @@ fn main() {
     let to = a.iter().map(|&(_, _, x, y)| (x, y)).collect();
     let input = Input { from, to };
     let output = greedy(&input);
-    // eprintln!("{:?}", compute_score(&input, &output).0);
+    // eprintln!("{:?}", compute_score(&input, &output));
     parse_output(&output);
 }
 
-fn decide_dist_max(input: &Input) -> i32 {
-    let mut ret_dist = 1000;
-    let mut ng_dist = 0;
-    while ret_dist - ng_dist > 1 {
-        let mid = (ret_dist + ng_dist) / 2;
-        let mut m = 0;
-        for (from, to) in input.from.iter().zip(input.to.iter()) {
-            if dist((400, 400), *from) <= mid && dist((400, 400), *to) <= mid {
-                m += 1;
-            }
-        }
-        if M <= m {
-            ret_dist = mid;
-        } else {
-            ng_dist = mid;
-        }
-    }
-    ret_dist
-}
-
 fn greedy(input: &Input) -> Output {
-    let dist_max = decide_dist_max(input);
     let mut r = vec![];
-    let mut path = vec![];
-    path.push((400, 400));
+    let mut path = vec![(400, 400), (400, 400)];
 
-    // 全レストランでnearest neighbor法をする
-    // レストランがpick up済みであるかの情報を持つvec 0:未pickの注文 1:pick済みの注文 -1:注文対象外のレストラン
-    let mut is_picked = vec![0; N];
-
-    // オフィスからの{レストラン,配達先}までのマンハッタン距離がDIST_MAXを超えるレストランはpickしないようにする
-    for (i, (rest, dest)) in input.from.iter().zip(input.to.iter()).enumerate() {
-        if dist_max < dist((400, 400), *rest) || dist_max < dist((400, 400), *dest) {
-            is_picked[i] = -1;
-        }
-    }
-
-    let mut is_delivered = vec![false; M];
-
-    // path[-1]に一番近いレストランをpathに追加していく、もしくはpath[-1]に一番近いpick済みの注文の配送先に配送する
-    while is_delivered.iter().any(|b| !(*b)) {
-        let mut rest_i = N;
+    let mut ordered_restaurant = vec![false; N];
+    while r.len() < M {
         let mut min_dist = i32::max_value();
-        let mut is_restaurant = true;
-        if r.len() < M {
-            for (i, p) in is_picked.iter().enumerate() {
-                if *p == -1 || *p == 1 {
-                    continue;
-                }
-                let now_dist = dist(path[path.len() - 1], input.from[i]);
-                if min_dist > now_dist {
-                    min_dist = now_dist;
-                    rest_i = i;
-                }
-            }
-        }
-        for (i, rest) in r.iter().enumerate() {
-            if is_delivered[i] {
+        let mut rest_id = N;
+        let mut path_rest_i = 2 * M + 2;
+        let mut path_deli_i = 2 * M + 2;
+
+        let mut min_rest_dist = vec![i32::max_value(); path.len()];
+        let mut min_rest_index = vec![M; path.len()];
+        // r.len() + 1回目に挿入するレストランと配送先を決める
+        for (id, is_ordered) in ordered_restaurant.iter_mut().enumerate() {
+            if *is_ordered {
                 continue;
             }
-            let now_dist = dist(path[path.len() - 1], input.to[*rest - 1]);
-            if min_dist > now_dist {
-                min_dist = now_dist;
-                rest_i = i;
-                is_restaurant = false;
+            min_rest_dist[0] = i32::max_value();
+            // レストランを挿入したときの、増加量の累積min
+            for j in 1..path.len() {
+                let now_dist = dist(path[j - 1], input.from[id]) + dist(input.from[id], path[j])
+                    - dist(path[j - 1], path[j]);
+                min_rest_dist[j] = now_dist;
+                if min_rest_dist[j - 1] > min_rest_dist[j] {
+                    min_rest_index[j] = j;
+                } else {
+                    min_rest_dist[j] = min_rest_dist[j - 1];
+                    min_rest_index[j] = min_rest_index[j - 1];
+                }
+            }
+
+            for k in 1..path.len() {
+                let now_dist = if k != min_rest_index[k] {
+                    dist(path[k - 1], input.to[id]) + dist(input.to[id], path[k])
+                        - dist(path[k - 1], path[k])
+                        + min_rest_dist[k]
+                } else {
+                    dist(path[k - 1], input.from[id])
+                        + dist(input.from[id], input.to[id])
+                        + dist(input.to[id], path[k])
+                        - dist(path[k - 1], path[k])
+                };
+                if min_dist > now_dist {
+                    min_dist = now_dist;
+                    rest_id = id;
+                    path_rest_i = min_rest_index[k];
+                    path_deli_i = k + 1;
+                }
             }
         }
-        if is_restaurant {
-            r.push(rest_i + 1);
-            is_picked[rest_i] = 1;
-            path.push(input.from[rest_i]);
-        } else {
-            is_delivered[rest_i] = true;
-            path.push(input.to[r[rest_i] - 1]);
-        }
+        r.push(rest_id + 1);
+        path.insert(path_rest_i, input.from[rest_id]);
+        path.insert(path_deli_i, input.to[rest_id]);
+        ordered_restaurant[rest_id] = true;
     }
 
-    path.push((400, 400));
     Output { r, path }
 }
 
