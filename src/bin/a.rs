@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 const TIMELIMIT: f64 = 1.8;
 const N: usize = 1000;
 const M: usize = 50;
+const INF: i32 = 2_000_000_000;
 
 struct Input {
     from: Vec<(i32, i32)>,
@@ -16,7 +17,18 @@ struct Input {
 #[derive(Clone)]
 struct Output {
     r: Vec<usize>,
+    used: Vec<bool>,
     path: Vec<usize>,
+}
+
+impl Output {
+    fn new(r: Vec<usize>, path: Vec<usize>) -> Self {
+        let mut used = vec![false; N];
+        for &i in &r {
+            used[i - 1] = true;
+        }
+        Output { r, used, path }
+    }
 }
 
 fn main() {
@@ -30,7 +42,7 @@ fn main() {
     let input = Input { from, to };
     let mut output = greedy(&input);
     // eprintln!("{:?}", compute_score(&input, &output));
-    annealing_2opt(&input, &mut output, &mut timer, &mut rng);
+    annealing(&input, &mut output, &mut timer, &mut rng);
     // eprintln!("{:?}", compute_score(&input, &output));
     parse_output(&input, &output);
 }
@@ -48,13 +60,14 @@ fn get_pos(input: &Input, i: usize) -> (i32, i32) {
 const T0: f64 = 100.0;
 const T1: f64 = 1.0;
 
-fn annealing_2opt(
+fn annealing(
     input: &Input,
     output: &mut Output,
     timer: &mut Timer,
     rng: &mut rand_chacha::ChaCha20Rng,
 ) {
     let mut picked = [-1; N];
+    let mut score = compute_score(input, &output.path);
     let mut temp = T0;
 
     'lp: for iter in 0.. {
@@ -65,30 +78,88 @@ fn annealing_2opt(
             }
             temp = T0.powf(1.0 - passed) * T1.powf(passed);
         }
-        // 異なる2本のルートそれぞれを前半と後半の二つのパスに分け、後半のパスを交換することにより新しい解を作る
-        let mut i = rng.gen_range(1, 2 * M + 1);
-        let mut j = rng.gen_range(1, 2 * M + 1);
-        if i == j {
-            continue;
-        }
-        if i > j {
-            std::mem::swap(&mut i, &mut j);
-        }
-        let pi_1 = get_pos(input, output.path[i - 1]);
-        let pi = get_pos(input, output.path[i]);
-        let pj = get_pos(input, output.path[j]);
-        let pj_1 = get_pos(input, output.path[j + 1]);
-        let diff = dist(pi_1, pj) + dist(pi, pj_1) - dist(pi_1, pi) - dist(pj, pj_1);
-        if diff <= 0 || rng.gen_bool(f64::exp(-diff as f64 / temp)) {
-            for k in i..=j {
-                if picked[output.path[k] >> 1] == iter {
-                    // ひっくり返すパスに番号の同じレストランと配達先が含まれる場合
-                    // レストランより先に配達先に行ってしまうのでひっくり返せない
-                    continue 'lp;
-                }
-                picked[output.path[k] >> 1] = iter;
+        if iter % 2 == 0 {
+            // 2-opt
+            // 異なる2本のルートそれぞれを前半と後半の二つのパスに分け、後半のパスを交換することにより新しい解を作る
+            let mut i = rng.gen_range(1, 2 * M + 1);
+            let mut j = rng.gen_range(1, 2 * M + 1);
+            if i == j {
+                continue;
             }
-            output.path[i..=j].reverse();
+            if i > j {
+                std::mem::swap(&mut i, &mut j);
+            }
+            let pi_1 = get_pos(input, output.path[i - 1]);
+            let pi = get_pos(input, output.path[i]);
+            let pj = get_pos(input, output.path[j]);
+            let pj_1 = get_pos(input, output.path[j + 1]);
+            let diff = dist(pi_1, pj) + dist(pi, pj_1) - dist(pi_1, pi) - dist(pj, pj_1);
+            if diff <= 0 || rng.gen_bool(f64::exp(-diff as f64 / temp)) {
+                for k in i..=j {
+                    if picked[output.path[k] >> 1] == iter {
+                        // ひっくり返すパスに番号の同じレストランと配達先が含まれる場合
+                        // レストランより先に配達先に行ってしまうのでひっくり返せない
+                        continue 'lp;
+                    }
+                    picked[output.path[k] >> 1] = iter;
+                }
+                score += diff;
+                output.path[i..=j].reverse();
+            }
+        } else {
+            // swap
+            let ri = rng.gen_range(0, M);
+            let i = output.r[ri] - 1;
+            let j = rng.gen_range(0, N);
+            if output.used[j] {
+                continue;
+            }
+            let mut path = output
+                .path
+                .iter()
+                .filter(|&&k| (k >> 1) != i)
+                .cloned()
+                .collect::<Vec<_>>();
+            // 交換する注文番号を除いたpathに挿入してスコアの高くなる位置を探す
+            let mut min_dist = INF;
+            let mut rest_min_index = 2 * M + 2;
+            let mut dest_min_i = 2 * M + 2;
+            let mut rest_min_i = 2 * M + 2;
+            let mut rest_min_dist = INF;
+            for k in 1..path.len() {
+                let pk_1 = get_pos(input, path[k - 1]);
+                let pk = get_pos(input, path[k]);
+                let rest_dist =
+                    dist(pk_1, input.from[j]) + dist(input.from[j], pk) - dist(pk_1, pk);
+                if rest_dist < rest_min_dist {
+                    rest_min_dist = rest_dist;
+                    rest_min_index = k;
+                }
+                let now_dist = if rest_min_index == k {
+                    // レストランと配達先を同じところに挿入する
+                    dist(pk_1, input.from[j])
+                        + dist(input.from[j], input.to[j])
+                        + dist(input.to[j], pk)
+                        - dist(pk_1, pk)
+                } else {
+                    dist(pk_1, input.to[j]) + dist(input.to[j], pk) - dist(pk_1, pk) + rest_min_dist
+                };
+                if now_dist < min_dist {
+                    min_dist = now_dist;
+                    rest_min_i = rest_min_index;
+                    dest_min_i = k + 1;
+                }
+            }
+            path.insert(rest_min_i, j * 2);
+            path.insert(dest_min_i, j * 2 + 1);
+            let diff = compute_score(input, &path) - score;
+            if diff <= 0 {
+                output.r[ri] = j + 1;
+                output.used[i] = false;
+                output.used[j] = true;
+                output.path = path;
+                score += diff;
+            }
         }
     }
 }
@@ -152,7 +223,7 @@ fn greedy(input: &Input) -> Output {
         ordered_restaurant[rest_id] = true;
     }
 
-    Output { r, path }
+    Output::new(r, path)
 }
 
 fn dist((x1, y1): (i32, i32), (x2, y2): (i32, i32)) -> i32 {
@@ -160,12 +231,12 @@ fn dist((x1, y1): (i32, i32), (x2, y2): (i32, i32)) -> i32 {
 }
 
 #[allow(dead_code)]
-fn compute_score(input: &Input, out: &Output) -> i64 {
+fn compute_score(input: &Input, path: &[usize]) -> i32 {
     let mut time = 0;
-    for i in 1..out.path.len() {
-        time += dist(get_pos(input, out.path[i - 1]), get_pos(input, out.path[i])) as i64;
+    for i in 1..path.len() {
+        time += dist(get_pos(input, path[i - 1]), get_pos(input, path[i]))
     }
-    (1e8 / (1000 + time) as f64).round() as i64
+    time
 }
 
 fn parse_output(input: &Input, output: &Output) {
